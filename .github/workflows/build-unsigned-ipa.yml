@@ -1,0 +1,54 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-unsigned-ipa.yml'
+
+jobs:
+  build:
+    name: iOS unsigned IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          LATEST_XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$LATEST_XCODE" ]; then sudo xcode-select -s "$LATEST_XCODE"; fi
+          xcodebuild -version
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.3"
+          channel: "stable"
+          cache: false
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build iOS (no codesign)
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=CI_VERSION=manual \
+            --dart-define=GIT_COMMIT="$GITHUB_SHA" \
+            --dart-define=BUILD_TIME="$GITHUB_RUN_ID"
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then echo "Runner.app not found"; ls -la build/ios/iphoneos || true; exit 1; fi
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -qry BeeCount-unsigned.ipa Payload
+          ls -lh BeeCount-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BeeCount-unsigned-ipa
+          path: BeeCount-unsigned.ipa
